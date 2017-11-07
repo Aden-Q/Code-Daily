@@ -26,10 +26,9 @@ text.grid(row=4, column = 1, pady = 30)
 k = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 18, 21, 24, 27, 30,
      33, 36, 39, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81]
 x = sy.Symbol('x')
-p = re.compile(r'[2][0][1][0-7]/[1-9][012]{0,1}/[1-9][0-9]{0,1}')
+p = re.compile(r'[2][0][1][0-7]/[1-9][012]{0,1}/[1-9][0-9]{0,1}') #编译正则表达式生成模式对象匹配时间的输入是否正确
 
-
-def show():                         #正则表达式匹配错误的输入
+def show():
     vs = v1.get()
     if(p.match(vs)==None):
         text.config(state=NORMAL)
@@ -51,7 +50,7 @@ def show():                         #正则表达式匹配错误的输入
     for i in range(35):
         if k[i] <= monage and k[i+1] > monage:
             break
-    text.config(state = NORMAL)
+    text.config(state = NORMAL)         #显示前设置text为可修改
     text.delete(1.0, END)
     if(v2.get() == '男'):
         text.insert(INSERT, '标准身高为：%.1f\n' % round(func.height_boy[i].subs(x, monage), 1))
@@ -63,7 +62,7 @@ def show():                         #正则表达式匹配错误的输入
         evaluate_girl(monage, i)
     else:
         text.insert(INSERT, '输入有误，请重新输入！')
-    text.config(state = DISABLED)
+    text.config(state = DISABLED)          #显示后设置text为只读模式(不允许用户删改其内容)
 
 def evaluate_boy(a, i):
     if(v3.get() != ''):           #身高的输入非空
