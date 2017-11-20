@@ -7,8 +7,7 @@ root = Tk()
 root.title('查询身高体重')
 root.maxsize(450, 300)
 root.minsize(450, 300)
-#photo = PhotoImage(file="1.gif")
-#imgLabel = Label(root, image = photo).grid()
+history = []            #创建history列表存储查询记录
 label1 = Label(root,text = "请输入生日：", font = ("楷体", 15)).grid(row = 0, padx = 30, pady = 10)
 Label2 = Label(root, text = "请输入性别：", font = ("楷体", 15)).grid(row = 1,padx = 30, pady = 10)
 Label3 = Label(root, text = "请输入身高：", font = ("楷体", 15)).grid(row = 2,padx = 30, pady = 10)
@@ -18,15 +17,23 @@ v2 = StringVar()
 v3 = StringVar()
 v4 = StringVar()
 e1 = Entry(root, textvariable =v1, width = 30).grid(row = 0, column = 1)
-e2 = Entry(root, textvariabl = v2, width = 30).grid(row = 1, column = 1)
-e3 = Entry(root, textvariabl = v3, width = 30).grid(row = 2, column = 1)
-e4 = Entry(root, textvariabl = v4, width = 30).grid(row = 3, column = 1)
+e2 = Entry(root, textvariable = v2, width = 30).grid(row = 1, column = 1)
+e3 = Entry(root, textvariable = v3, width = 30).grid(row = 2, column = 1)
+e4 = Entry(root, textvariable = v4, width = 30).grid(row = 3, column = 1)
 text = Text(root, width = 30, height = 4)
 text.grid(row=4, column = 1, pady = 30)
 k = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 18, 21, 24, 27, 30,
      33, 36, 39, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81]
 x = sy.Symbol('x')
-p = re.compile(r'[2][0][1][0-7]/[1-9][012]{0,1}/[1-9][0-9]{0,1}') #编译正则表达式生成模式对象匹配时间的输入是否正确
+p = re.compile(r'[2][0][1][0-7]/[1-9][012]{0,1}/[1-9][0-9]{0,1}') #编译正则表达式生成模式对象p来匹配时间的输入是否正确
+
+def show_history():
+    text.config(state = NORMAL)         #显示前设置text为可修改
+    text.delete(1.0, END)               #清空text的内容
+    for each in history:
+        text.insert(INSERT,each)
+    text.config(state = DISABLED)       #显示后设置text为只读模式(不允许用户删改其内容)
+
 
 def show():
     vs = v1.get()
@@ -56,10 +63,16 @@ def show():
         text.insert(INSERT, '标准身高为：%.1f\n' % round(func.height_boy[i].subs(x, monage), 1))
         text.insert(INSERT, '标准体重为：%.1f\n' % round(func.weight_boy[i].subs(x, monage), 1))
         evaluate_boy(monage, i)
+        history_string = '%.1f个月大的男孩:\n标准身高为：%.1f\n标准体重为：%.1f\n' %(round(monage, 1),round(func.height_boy[i].subs(x, monage), 1), round(func.weight_boy[i].subs(x, monage), 1))
+        if history_string not in history:
+            history.append(history_string)
     elif(v2.get() == '女'):
         text.insert(INSERT, '标准身高为：%.1f\n' % round(func.height_girl[i].subs(x, monage), 1))
         text.insert(INSERT, '标准体重为：%.1f\n' % round(func.weight_girl[i].subs(x, monage), 1))
         evaluate_girl(monage, i)
+        history_string = '%.1f个月大的女孩:\n标准身高为：%.1f\n标准体重为：%.1f\n' % (round(monage, 1), round(func.height_girl[i].subs(x, monage), 1), round(func.weight_girl[i].subs(x, monage), 1))
+        if history_string not in history:
+            history.append(history_string)
     else:
         text.insert(INSERT, '输入有误，请重新输入！')
     text.config(state = DISABLED)          #显示后设置text为只读模式(不允许用户删改其内容)
@@ -164,6 +177,11 @@ def evaluate_girl(a, i):
         else:
             pass
 
-b = Button(root, text = "查 询", font = ("楷体"), width = 15, command = show).grid(row = 4, pady = 30)
 
-mainloop()
+b = Button(root, text = "查 询", font = ("楷体"), width = 15, command = show).grid(row = 4, pady = 30)
+menubar = Menu(root)
+menubar.add_command(label="历史记录",command=show_history)
+menubar.add_command(label="退出",command=exit)
+root.config(menu=menubar)
+
+mainloop()          #进入tkinter的主事件循环
