@@ -1,0 +1,15 @@
+运行说明：
+使用的平台是windows10，python3.6.2版本(可以用更高的版本)，使用了sympy(1.1.1)，如果没有，这个
+包需要手动安装！另外用到的包都是内置的，有re和tkinter，如果你不小心删掉了这些包，也需要手动下载。
+使用时，需要把function.py文件和main.py文件放在同一个目录下，只需要用IDLE或PyCharm之类的IDE打
+开main.py文件运行即可（不要双击打开）
+OSX也可以运行，但需要处理的问题较多（版本、tcl版本更新、中文支持等问题），Linux也是一样，因此
+为了方便起见，建议使用windows10的平台来运行脚本。
+
+算法主要功能描述：
+coefficient.py脚本进行函数拟合，其中的数据只是4个表中的一个数据例，其他的数据例在“男童”、
+“女童”文件夹中可以找到。然后coefficient.py拟合出来的多项式结果都是存放在function.py脚本中的
+而在main.py脚本中导入了这个模块（这就是为什么要把这两个文件放在同一个目录下）。在main.py脚本
+中进行了图形界面的设计。
+
+所有的代码都可以在 https://github.com/Aden-Q/Code/tree/master/py/Py%20program 中找到
