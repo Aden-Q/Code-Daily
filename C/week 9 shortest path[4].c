@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -17,22 +18,22 @@ typedef PtrToGNode MGraph;
 
 MGraph ReadG(void);
 
-void ShortestDist( MGraph Graph, int dist[], int count[], Vertex S );
+void ShortestDist( MGraph Graph, int dist[], int path[], Vertex S );
 
 int main()
 {
-    int dist[MaxVertexNum], count[MaxVertexNum];
+    int dist[MaxVertexNum], path[MaxVertexNum];
     Vertex S, V;
     MGraph G = ReadG();
     
     scanf("%d", &S);
-    ShortestDist( G, dist, count, S );
+    ShortestDist( G, dist, path, S );
     
     for ( V=0; V<G->Nv; V++ )
         printf("%d ", dist[V]);
     printf("\n");
     for ( V=0; V<G->Nv; V++ )
-        printf("%d ", count[V]);
+        printf("%d ", path[V]);
     printf("\n");
     
     return 0;
@@ -56,26 +57,25 @@ MGraph ReadG(void)
 }
 
 
-void ShortestDist( MGraph Graph, int dist[], int count[], Vertex S )
+void ShortestDist( MGraph Graph, int dist[], int path[], Vertex S )
 {
-    int i,j;
+    int i;
     int rear,front;
     int Q[1000];
     int V;
-    int stack[100];
     int topofstack;
+    int count[100];
     topofstack=-1;
     rear=0;
     front=0;
     Q[rear]=S;
-    int indegree[100];
     for(i=0;i<Graph->Nv;i++){
         dist[i]=INFINITY;
-        count[i]=0;
-        indegree[i]=0;
+        path[i]=-1;
+        count[i]=INFINITY;         //最短路径的最小长度
     }
     dist[S]=0;
-    count[S]=1;
+    count[S]=0;
     while(rear>=front)
     {
         V=Q[front++];
@@ -96,24 +96,22 @@ void ShortestDist( MGraph Graph, int dist[], int count[], Vertex S )
     for(i=0;i<Graph->Nv;i++)
         if(dist[i]==INFINITY)
             dist[i]=-1;
-    for(i=0;i<Graph->Nv;i++)
-        for(j=0;j<Graph->Nv;j++)
-            if(Graph->G[i][j]!=INFINITY&&dist[j]==dist[i]+Graph->G[i][j])
-                indegree[j]++;          //统计入度,只计入起作用的边的入度
-    for(i=0;i<Graph->Nv;i++)
-        if(indegree[i]==0)
-            stack[++topofstack]=i;
-    while(topofstack>=0){
-        V=stack[topofstack--];
+    rear=0;
+    front=0;
+    Q[rear]=S;                  //初始化队列
+    while(rear>=front){         //队列非空则做
+        V=Q[front++];           //处理当前节点
+        if(count[V]==INFINITY&&dist[V]!=-1){     //若当前节点是当前不可达到的而且是未来可以达到的，之后再处理
+            Q[++rear]=V;                        //这段应该多余了
+            continue;
+        }
         for(i=0;i<Graph->Nv;i++){
-            if(Graph->G[V][i]!=INFINITY){
-                if(dist[V]+Graph->G[V][i]==dist[i]){
-                    count[i]+=count[V];
-                    indegree[i]--;
-                    if(indegree[i]==0)
-                        stack[++topofstack]=i;
-                }
+            if(Graph->G[V][i]!=INFINITY&&dist[V]+Graph->G[V][i]==dist[i]&&count[V]+1<count[i]){
+                count[i]=count[V]+1;            //更新count
+                path[i]=V;
+                Q[++rear]=i;
             }
         }
     }
 }
+
