@@ -1,0 +1,606 @@
+/*
+本代码用于浙江大学信电学院课程教育，请勿外传。
+代码功能：
+通过ESP8266WIFI模块连接能够连接校网的WIFI热点（热点SSID和密码在下面设置），
+访问校网内指定IP地址的云服务器（IP地址在下面设置）。实现把Arduino模数转换
+脚（具体管脚可以在下面修改）读进来的温度传感器的值经过转换后变成单位为0.1
+摄氏度的整数上传至云服务器，同时检查云服务器上的逻辑控制值（一个整型量），
+根据该逻辑控制值，我们来控制4路开关信号输出+4路PWM信号输出。其中：
+	4路开关量分别用逻辑控制值的BIT0~BIT3的值来表征。
+	4路PWM信号输出，每路用3个BIT（BIT4~BIT6、BIT7~BIT9、BIT10~BIT12、
+	BIT13~BIT15）来表示状态：
+		000 表示输出不受逻辑控制值影响，由arduino程序负责其输出，比如用亮度
+		值去控制pwm的输出值。
+		001~100 表示pwm输出受逻辑控制值的影响，分为4档，001第一档，010第二
+			档，011第三档，100第四档
+代码仅提供了控制两个开关量的演示，其余代码请同学们自行补充。
+本代码中大部分是用于ESP8266的设置、初始化和通信的代码，对于低年级的同学可
+能比较难于理解，可以忽略它，如有问题可以和作者（zjumhq@zju.edu.cn联系）		
+*/
+
+//组号，必改！！！！！
+//组号，必改！！！！！
+//组号，必改！！！！！请大家按老师的分配的组号填入(0~999)
+#define GRP_NO	138
+
+//WIFI热点的SSID和密码，请同学们根据自己的情况修改
+#define ssid		"无敌的俊丸子"
+#define password	"11111111"
+
+//校园网云服务器的IP地址，一般不需要更改。如有更改，会在FTP上告知大家
+#define CLOUD_IP  "10.78.22.230"
+
+//显示程序工作状态的LED灯管脚定义，可以根据实际情况更改
+#define pinLED13  8
+//定义了输入温度传感器读数的AD管脚，可以根据实际情况更改
+#define pinTemp A0
+
+
+#define __DEBUG
+//下面是调试打印语句的宏定义，利用软件仿真的一个串口输出调试信息。
+#ifdef __DEBUG
+#define DBUG_PRINTLN(a) mySerial.println((a))
+#define DBUG_PRINTLN2(a,b) mySerial.println((a),(b))
+#define DBUG_PRINT(a) mySerial.print((a))
+#define DBUG_PRINT2(a,b) mySerial.print((a),(b))
+#define DBUG_WRITE(a) mySerial.write((a))
+#else
+#define DBUG_PRINTLN(a)  
+#define DBUG_PRINTLN2(a,b) 
+#define DBUG_PRINT(a) 
+#define DBUG_PRINT2(a,b) 
+#define DBUG_WRITE(a) 
+#endif	
+
+//软件仿真的RS232串口定义，软串口占用了2、3号管脚，可以根据实际情况更改。
+#include <SoftwareSerial.h>
+SoftwareSerial mySerial(2, 3);
+
+//两个开关量输出的管脚定义，可以根据实际情况更改。
+const int relayPin9 = 9;      // the pin number of the relay pin
+const int relayPin10 = 10;      // the pin number of the relay pin
+
+//下面这些字符串定义用于8266通信
+const char OK_str[] = "OK";
+const char ERROR_str[] = "ERROR";
+const char AT_CIPSTATUS_str[] = "AT+CIPSTATUS";
+const char AT_CIPCLOSE_str[] = "AT+CIPCLOSE";
+const char AT_CIPSTART_str[] = "AT+CIPSTART=";
+
+//设备状态
+int temperature;		//温度传感器的值
+bool state1, state2;	//两个开关量的值
+
+//设备名称
+char name[16] = "smartSocket";
+
+//时间控制变量，用于控制程序执行时序
+unsigned long CurrTime, PrevTime, LastTime;
+
+void(* resetFunc) (void) = 0; //制造重启命令，软件复位
+
+//在8266返回的串口数据中寻找指定字符串，超时仍未找到返回false
+bool SerialFind(char* dest,int to_ms){
+	unsigned long start = millis();
+	char data[128];
+	char c;
+	int i;
+	int data_ptr = 0;
+	int dest_len = strlen(dest);
+	int dest_ptr=0;
+	while(millis()-start<to_ms){
+		if(Serial.available()>0 ){
+			c = Serial.read();
+			data[data_ptr] = c;
+			data_ptr++;
+			if( data_ptr>=127 )
+				data_ptr = 0;
+			if( c==dest[dest_ptr] ){
+				dest_ptr++;
+				if( dest_ptr>=dest_len )	return true;
+			}
+			else{
+				dest_ptr = 0;
+			}
+		}
+	}
+	if( data_ptr>0 ){
+		DBUG_PRINT('[');
+		DBUG_PRINT2(data_ptr,DEC);
+		DBUG_PRINTLN(':');
+		for(i=0;i<data_ptr;i++){
+			DBUG_WRITE((char)data[i]);
+		}
+		DBUG_PRINTLN(']');
+	}
+	return false;
+}
+
+//在8266返回的串口数据中寻找指定的两种字符串（正确响应的字符串）或另两种字符串（反映错误的两种字符串）
+//根据不同情况返回不同的值，超时仍未找到返回0
+int SerialFind2(char* destok1,char* destok2,char* desterr1,char* desterr2,char* Info,int to_ms){
+	unsigned long start = millis();
+	char data[128];
+	char c;
+	int i;
+	int data_ptr = 0;
+	int destok1_len = strlen(destok1);
+	int destok1_ptr=0;
+	int destok2_len = strlen(destok2);
+	int destok2_ptr=0;
+	int desterr1_len = strlen(desterr1);
+	int desterr1_ptr=0;
+	int desterr2_len = strlen(desterr2);
+	int desterr2_ptr=0;
+	int ret = 0;
+	bool ok1 = false;
+	bool ok2 = false;
+	bool err1 = false;
+	bool err2 = false;
+	while(millis()-start<to_ms){
+		if(Serial.available()>0 ){
+			c = Serial.read();
+			data[data_ptr] = c;
+			data_ptr++;
+			if( data_ptr>=127 )
+				data_ptr = 0;
+			if( c==destok1[destok1_ptr] ){
+				destok1_ptr++;
+				if( destok1_ptr>=destok1_len )	ok1 = true;
+			}
+			else{
+				destok1_ptr = 0;
+			}
+			if( destok2!=NULL ){
+				if( c==destok2[destok2_ptr] ){
+					destok2_ptr++;
+					if( destok2_ptr>=destok2_len )	ok2 = true;
+				}
+				else{
+					destok2_ptr = 0;
+				}
+			}
+			if( c==desterr1[desterr1_ptr] ){
+				desterr1_ptr++;
+				if( desterr1_ptr>=desterr1_len )	err1 = true;
+			}
+			else{
+				desterr1_ptr = 0;
+			}
+			if( desterr2!=NULL ){
+				if( c==desterr2[desterr2_ptr] ){
+					desterr2_ptr++;
+					if( desterr2_ptr>=desterr2_len )	err2 = true;
+				}
+				else{
+					desterr2_ptr = 0;
+				}
+			}
+		}
+		if( ok1 || ok2 ){
+			if( Info!=NULL ){
+				DBUG_PRINT(OK_str);
+				DBUG_PRINT(" for ");
+				DBUG_PRINTLN(Info);
+			}
+			return 1+(ok2?1:0);
+		}
+		if( err1 || err2 )	{
+			if( Info!=NULL ){
+				DBUG_PRINT("Fail");
+				DBUG_PRINT(" for ");
+				DBUG_PRINTLN(Info);
+			}
+			ret = -1-(err2?1:0);
+			break;
+		}
+	}
+	if( data_ptr>0 ){
+		DBUG_PRINT('[');
+		DBUG_PRINT2(data_ptr,DEC);
+		DBUG_PRINT(':');
+		for(i=0;i<data_ptr;i++){
+			DBUG_WRITE((char)data[i]);
+		}
+		DBUG_PRINTLN(']');
+	}
+	return ret;
+}
+
+
+//****************************************************************
+//获取温度值的函数，需要根据实际器件修改
+int getTemperature()
+{
+	return (analogRead(pinTemp));
+}
+
+//根据flag设置闪烁LED
+void LedShowFlag(unsigned char flag){
+	int i;
+	for(i=0;i<3;i++){
+		digitalWrite(pinLED13, HIGH);
+		delay(25);
+		digitalWrite(pinLED13, LOW);
+		delay(25);
+	}
+	for(i=0;i<(flag/10)%10;i++){
+		digitalWrite(pinLED13, HIGH);
+		delay(280);
+		digitalWrite(pinLED13, LOW);
+		delay(280);
+	}
+	for(i=0;i<flag%10;i++){
+		digitalWrite(pinLED13, HIGH);
+		delay(140);
+		digitalWrite(pinLED13, LOW);
+		delay(140);
+	}
+}
+
+//死锁检测准备
+void deadLockCheck_prepare(){
+	LastTime = millis()/500;
+}
+//死锁检测，此函数的功能是要求程序必须在规定的时间内执行到指定的语句，否则
+//就认为程序存在死锁，执行软件重启。
+void deadLockCheck(int to){//to -- 1/2s
+	if( millis()/500-LastTime>to ){
+		DBUG_PRINTLN("System deadlock, we reboot and try again..");
+		resetFunc();
+	}
+}
+
+//ESP8266的初始化函数，完成8266的上电初始化、设置工作模式、连接指定无线WIFI
+//热点、建立和云服务器的TCPIP连接、设置透传等功能。
+void Init8266()
+{
+	long cnt = 0;
+	boolean result;
+	//退出透传模式
+	Serial.flush();
+	Serial.print("+++");
+	LedShowFlag(11);
+	Serial.print("+++");
+	LedShowFlag(11);
+	Serial.print("+++");
+	LedShowFlag(11);
+	Serial.print("+++");
+	Serial.flush();
+	deadLockCheck_prepare();
+	do {//set into station mode
+		delay(50);
+		//Serial.flush();
+		Serial.println("AT+CWMODE=1");  
+		if( SerialFind2((char*)OK_str,"no change",(char*)ERROR_str,"busy","station mode!",2000)>=1 )
+			break;
+		deadLockCheck(60);
+	}while(1);
+	LedShowFlag(12);
+	while(1){
+		//Serial.flush();
+		DBUG_PRINTLN("try RST..");
+		Serial.println("AT+RST");
+		if( SerialFind((char*)OK_str,2000) ){
+			//rstReady = true;
+			DBUG_PRINT("8266 ready on ");
+			DBUG_PRINTLN("115200...");
+			break;
+		}
+		deadLockCheck(60);
+	}
+	
+	LedShowFlag(13);
+	//print 8266 startup info
+	DBUG_PRINTLN('.');
+	DBUG_PRINTLN("..8266_info..");
+
+	cnt = 0;
+	while (Serial.available() <= 128 && cnt < 3000)
+	{
+		delay(1);
+		while (Serial.available() > 0)
+		{
+			char c = (char)Serial.read();
+			DBUG_WRITE(c);
+		}
+		cnt++;
+		deadLockCheck(60);
+	}
+  	DBUG_PRINTLN('.');
+
+	LedShowFlag(21);
+
+	do {//set into station mode
+		delay(50);
+		//Serial.flush();
+		Serial.println("AT+CWMODE=1");  
+		if( SerialFind2((char*)OK_str,"no change",(char*)ERROR_str,"busy","station mode!",2000)>=1 )
+			break;
+		deadLockCheck(60);
+	}while(1);
+
+	//Serial.flush();
+	do//attach to the wifi
+	{
+		deadLockCheck(120);
+		LedShowFlag(22);
+		DBUG_PRINT("connect to wifi:");
+		DBUG_PRINT(ssid);
+		DBUG_PRINT(" - ");
+		DBUG_PRINTLN(password);
+		delay(50);
+		Serial.print("AT+CWJAP=");  //attach to the wifi
+		Serial.print("\"");     //"ssid"
+		Serial.print(ssid);
+		Serial.print("\"");
+
+		Serial.print(",");
+
+		Serial.print("\"");      //"pwd"
+		Serial.print(password);
+		Serial.println("\"");
+
+
+		char strMyIP[16];
+		int nLen;
+
+		unsigned long start = millis();
+		while(millis()-start<2000)
+		{
+			if( Serial.available()>0 )
+				Serial.read();			
+		}
+		while(1)
+		{
+			Serial.println("AT+CIFSR"); //get IP address
+			result = SerialFind("TAIP,",1000);
+			if (result)
+			{
+				break;
+			}		
+			DBUG_PRINTLN("failure for IP Address!");
+			//LedShowFlag(1);
+			deadLockCheck(120);
+		}
+		LedShowFlag(23);
+
+		int i;
+		unsigned int ucsum=0;
+		for (i = 0; i < 16; i++)
+			strMyIP[i] = '\0';
+
+		Serial.setTimeout(200);
+		Serial.readBytesUntil('"', strMyIP, 15); //read to skip the prev '"'
+		Serial.setTimeout(200);
+		Serial.readBytesUntil('"', strMyIP, 15); //read the IP addr
+		i = 0;
+		while (i < 16 && strMyIP[i] != 0)
+		{
+			DBUG_PRINT(strMyIP[i]);
+			i++;
+		}
+		DBUG_PRINTLN('.');
+		if( SerialFind("AMAC,",200) ){
+			Serial.setTimeout(200);
+			Serial.readBytesUntil('"', strMyIP, 15); //read to skip the prev '"'
+			Serial.setTimeout(200);
+			Serial.readBytesUntil('"', strMyIP, 15); //read the MAC addr
+			for(i=0;i<17;i++)
+				ucsum += strMyIP[i];
+			String strName = String("SMTSKT-")+String(ucsum,HEX);
+			strName.toCharArray(name,16);
+			name[15] = 0;
+			DBUG_PRINT("NAME:");
+			DBUG_PRINTLN(name);
+			LedShowFlag(1);
+		}
+		else{
+			DBUG_PRINTLN("failure for MAC Address!");
+			LedShowFlag(2);
+		}
+		break;
+	}
+	while(1);
+  
+	LedShowFlag(31);
+
+	Serial.flush();
+  
+	// 设置 单连接
+	do{
+		delay(50);
+		Serial.println("AT+CIPMUX=0");
+		if( SerialFind2((char*)OK_str,(char*)OK_str,(char*)ERROR_str,"busy","Mux mode!",2000)>=1 )
+			break;
+		deadLockCheck(120);
+	} while (1);
+	LedShowFlag(32);
+
+	//建立TCP连接，进入透传
+	DBUG_PRINT("tryDebugLink..");
+	DBUG_PRINT(CLOUD_IP);
+	DBUG_PRINT(",");
+	DBUG_PRINTLN2(80,DEC);
+
+	while(1){
+		deadLockCheck(120);
+		DBUG_PRINTLN("T80");
+		Serial.println();
+		Serial.print(AT_CIPSTART_str); //open tcp
+		Serial.print('"');
+		Serial.print("TCP");
+		Serial.print('"');
+		Serial.print(",");
+		Serial.print('"');
+		Serial.print(CLOUD_IP);
+		Serial.print('"');
+		Serial.print(",");
+		Serial.println(80,DEC);
+		
+		if( SerialFind("CONNECT",2000)!=1 )	continue;
+		delay(100);
+		DBUG_PRINTLN("TTC");
+		Serial.println();
+		Serial.println("AT+CIPMODE=1");
+		if ( SerialFind((char*)OK_str,2000)==1 )
+		{
+			DBUG_PRINTLN("STC");
+			Serial.println("AT+CIPSEND");
+			if ( SerialFind(">",2000)==1 )
+			{
+				DBUG_PRINTLN("OKTC");
+				break;			
+			}
+		}
+	}
+	
+	LedShowFlag(33);
+
+	delay(100);
+	Serial.flush();
+	Serial.setTimeout(300);
+}
+
+//arduino系统初始化函数，这个函数是最先被执行的。
+void setup()
+{
+	// put your setup code here, to run once:
+	//初始化所有管脚
+	pinMode(pinLED13, OUTPUT);
+	digitalWrite(pinLED13, LOW); //turn off led13
+
+	// set the digital pin as output:
+	pinMode( relayPin9, OUTPUT );
+	pinMode( relayPin10, OUTPUT );
+	digitalWrite(relayPin9, LOW);
+	digitalWrite(relayPin10, LOW);
+
+	//启动物理串口和软串口
+	Serial.begin(115200);
+	while (!Serial);
+	mySerial.begin(9600);
+	delay(100);
+	LedShowFlag(11);
+	DBUG_PRINTLN("Debug UART ready...");
+	//初始化8266，建立和云服务器的连接
+	Init8266();
+	
+	//时间变量初始化，millis返回毫秒级的实时钟，除以500以后变成了0.5秒级的
+	CurrTime = PrevTime = millis()/500;
+
+	LedShowFlag(55);
+	state1 = state2 = true;
+	
+	deadLockCheck_prepare();
+}
+
+//arduino主循环函数，在setup结束后就会循环执行此函数，即
+//while(1){loop();}
+void loop()
+{
+	// put your main code here, to run repeatedly:
+	int i;
+	int udp_rcvSize = 0;
+	unsigned long flag;
+
+	CurrTime = millis();
+
+	CurrTime /= 500;
+	
+	deadLockCheck(120);//此代码限制了loop必须至少在120*0.5=60秒内完成一次循环
+
+	if (CurrTime-PrevTime>4)//每两秒查询一次逻辑控制值，查询间隔可以根据网络情况修改，网络情况差的话改的长一点。
+	{
+		PrevTime = CurrTime;
+		//查询通过向云服务器POST一个json格式的字符串来实现。
+		//下面的代码实现8266串口透传方式的HttpPost操作。
+		int SZ = 45;
+		int grpNum = GRP_NO+1000;
+		String jstr = "{\"op\":\"query\",\"id\":";
+		jstr += grpNum;
+		jstr += "}";
+		SZ = jstr.length()+4;
+		Serial.print("POST /iot.php");
+		Serial.println(" HTTP/1.1");
+		Serial.print("Host:");
+		Serial.println(CLOUD_IP);
+		Serial.println("Accept-Encoding:identity");
+		Serial.print("Content-Length: ");
+		Serial.println(SZ,DEC);
+		Serial.println();
+		Serial.println(jstr);
+		Serial.println();
+		DBUG_PRINTLN("[QUERY]");
+	}
+	//下面代码实现等待8266返回HttpPost操作结果的功能。如果接收到
+	//正确的返回，一方面，利用返回的逻辑控制值改变state1和state2
+	//的状态；另一方面，采用HttpPost上传温度传感器的值。
+	while (Serial.available() >=5)
+	{
+		Serial.setTimeout(100);
+		int find_result = SerialFind2("{\"result\":true",NULL,"{\"result\":false",NULL,NULL,2000);
+		if( find_result==1 ){
+			if(SerialFind("\"value\":{\"ctrls\":",500) ){
+				deadLockCheck_prepare();
+				int state = Serial.parseInt();
+				state1 = state%2==1;
+				state2 = (state/2)%2==1;
+				DBUG_PRINT("ST1=");
+				DBUG_PRINT2(state1,DEC);
+				DBUG_PRINT(",ST2=");
+				DBUG_PRINTLN2(state2,DEC);
+				LedShowFlag(30);
+
+				temperature = (getTemperature() * 95) / 64; //*91*10/512;
+				Serial.print("POST /iot.php");
+				Serial.println(" HTTP/1.1");
+				Serial.print("Host:");
+				Serial.println(CLOUD_IP);
+				Serial.println("Accept-Encoding:identity");
+				int SZ = 45;
+				String jstr = "{\"op\":\"modify\",\"id\":";
+				jstr += GRP_NO;
+				jstr += ",\"value\":{\"valname\":\"temperature\",\"valdata\":";
+				jstr += temperature;
+				jstr += "}}";
+				SZ = jstr.length()+4;
+				Serial.print("Content-Length: ");
+				Serial.println(SZ,DEC);
+				Serial.println();
+				Serial.println(jstr);
+				Serial.println();
+				
+				DBUG_PRINTLN("[MODIFY]");
+			}
+		}
+		else{
+			DBUG_PRINTLN("[HTTP_ERR]");
+		}
+	}
+	
+	//根据state1和state2的值控制开关量的输出。
+	if (state1)
+		digitalWrite(relayPin9, HIGH);
+	else
+		digitalWrite(relayPin9, LOW);
+	if (state2)
+		digitalWrite(relayPin10, HIGH);
+	else
+		digitalWrite(relayPin10, LOW);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
