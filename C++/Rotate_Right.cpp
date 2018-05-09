@@ -7,7 +7,7 @@ using namespace std;
 int main()
 {
     int N, M;
-    int data[10];
+    int data[101];
     int i, j;
     int temp;
     cin >> N;
