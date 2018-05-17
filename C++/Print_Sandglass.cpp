@@ -12,6 +12,7 @@ int main()
     cin >> c;
     int i, k, j, t;
     k = floor(sqrt((N + 1) / 2));
+    int count = N - (2 * k * k - 1);
     for (i = 0; i < k; i++)
     {
         for (t = 0; t < i; t++)
@@ -28,4 +29,5 @@ int main()
             cout << c;
         cout << endl;
     }
+    cout << count << endl;
 }
