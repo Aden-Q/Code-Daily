@@ -1,4 +1,5 @@
 // ZigZag Conversion
+// Medium 注意两个点就行了，一个是只有一行的情况，一个是数组size的问题，还是不太会动态申请内存。vector其实不太好
 
 #include <iostream>
 #include <string>
