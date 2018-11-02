@@ -1,4 +1,5 @@
 // Search insert position
+// 这个写的就比较烂了，不过easy一刷仅仅只是为了实现
 
 #include <iostream>
 #include <vector>
