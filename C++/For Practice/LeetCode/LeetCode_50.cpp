@@ -10,7 +10,7 @@ public:
         if(n == 0)
             return 1.0;
         if(n < 0 && n == INT_MIN)
-        	return 1/x * myPow(1/x, INT_MAX);
+        	return 1/x * myPow(1/x, INT_MAX);	// 单独处理一下这种最坑的情况
         else if(n < 0){
         	n = -n;
         	x = 1/x;
