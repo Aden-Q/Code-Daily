@@ -1,0 +1,52 @@
+// Minimum Index Sum of Two Lists
+// 30.36% time && 100.00% space
+// AC
+// Hashmap
+
+
+#include <iostream>
+#include <unordered_map>
+#include <vector>
+
+using namespace std;
+
+class Solution {
+private:
+    unordered_map<string, int> hashmap1;
+    unordered_map<string, int> hashmap2;
+public:
+    vector<string> findRestaurant(vector<string>& list1, vector<string>& list2) {
+        int max_sum = list1.size() + list2.size();
+        vector<string> res;
+        for(int i=0; i<list1.size(); i++)
+            hashmap1.insert(make_pair(list1[i], i));
+        for(int i=0; i<list2.size(); i++)
+            hashmap2.insert(make_pair(list2[i], i));
+        for(auto it:list1) {
+            if(hashmap2.count(it) > 0 && hashmap1[it]+hashmap2[it] < max_sum)
+                max_sum = hashmap1[it] + hashmap2[it];
+        }
+        // duplicate cases
+        for(auto it:list1) {
+            if(hashmap2.count(it) > 0 && hashmap1[it]+hashmap2[it] == max_sum)
+                res.push_back(it);
+        }
+
+        return res;
+    }
+};
+
+int main() {
+    vector<string> res;
+    string l1[4] = {"Shogun", "Tapioca Express", "Burger King", "KFC"};
+    string l2[3] = {"KFC", "Shogun", "Burger King"};
+    Solution test;
+    vector<string> list1(l1, l1+4);
+    vector<string> list2(l2, l2+3);
+    res = test.findRestaurant(list1, list2);
+    for(auto it:res)
+        cout << it << endl;
+
+
+    return 0;
+}
