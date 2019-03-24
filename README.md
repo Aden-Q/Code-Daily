@@ -1,7 +1,7 @@
 # Code Daily
 
 
-C/C++/Python
+C/C++/Python/Java
 
 + LeetCode
 + CodeWars
