@@ -10,3 +10,4 @@ C/C++/Python/Java
 + Some course projects in the ancient time
 + For fun
 
+The update for this repository should be stopped from now on.
