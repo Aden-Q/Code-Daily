@@ -7,4 +7,6 @@ C/C++/Python/Java
 + CodeWars
 + PAT
 + Checkio
++ Some course projects in the ancient time
++ For fun
 
